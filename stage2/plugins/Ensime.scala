@@ -21,8 +21,8 @@ import scala.util.control.NonFatal
   */
 trait Ensime extends BaseBuild {
 
-  /** ENSIME server and client configuration. */
-  def ensimeConfig: Ensime.EnsimeConfig = Ensime.EnsimeConfig(
+  /** Generate an ENSIME configuration file for this build. */
+  def ensime = Ensime.apply(lib, projectDirectory / ".ensime").EnsimeConfig(
     scalaCompilerJars = {
       new ScalaDependencies(
         context.cbtLastModified,
@@ -45,12 +45,6 @@ trait Ensime extends BaseBuild {
     javaSources = Ensime.jdkSource.toSeq,
     javaFlags = Ensime.baseJavaFlags,
     projects = Ensime.findProjects(this)
-  )
-
-  /** Generate an ENSIME configuration file for this build. */
-  def ensime: File = lib.writeIfChanged(
-    projectDirectory / ".ensime",
-    ensimeConfig.toSexp
   )
 
 }
@@ -212,71 +206,78 @@ object Ensime {
     }
   }
 
-  final case class EnsimeConfig(
-    scalaCompilerJars: Seq[File],
-    ensimeServerJars: Seq[File],
-    ensimeServerVersion: String,
-    rootDir: File,
-    cacheDir: File,
-    javaHome: File,
-    name: String,
-    scalaVersion: String,
-    javaSources: Seq[File],
-    javaFlags: Seq[String],
-    projects: Seq[EnsimeProject]
-  ) {
-    def toSexp: String = EnsimeConfig.sexp(this)
-  }
-  object EnsimeConfig {
-    private def sexp(value: Any): String = value match {
-      case s: String => s""""$s""""
-      case f: File => sexp(f.getAbsolutePath)
-      case (k, v) => s":$k ${sexp(v)}\n"
-      case xss: Traversable[_] if xss.isEmpty => "nil"
-      case xss: Traversable[_] => xss.map(sexp(_)).mkString("(", " ", ")")
-      case EnsimeProjectId(project, config) => sexp(List(
-        "project" -> project,
-        "config" -> config
-      ))
-      case proj: EnsimeProject => sexp(List(
-        "id" -> proj.id,
-        "depends" -> proj.depends,
-        "sources" -> proj.sources,
-        "targets" -> proj.targets,
-        "scalac-options" -> proj.scalacOptions,
-        "javac-options" -> proj.javacOptions,
-        "library-jars" -> proj.libraryJars,
-        "library-sources" -> proj.librarySources,
-        "library-docs" -> proj.libraryDocs
-      ))
-      case conf: EnsimeConfig => sexp(List(
-        "root-dir" -> conf.rootDir,
-        "cache-dir" -> conf.cacheDir,
-        "scala-compiler-jars" -> conf.scalaCompilerJars,
-        "ensime-server-jars" -> conf.ensimeServerJars,
-        "ensime-server-version" -> conf.ensimeServerVersion,
-        "name" -> conf.name,
-        "scala-version" -> conf.scalaVersion,
-        "java-home" -> conf.javaHome,
-        "java-flags" -> conf.javaFlags,
-        "java-sources" -> conf.javaSources,
-        "projects" -> conf.projects,
-        // subprojects are required for backwards-compatibility with older clients
-        // (ensime-server does not require them)
-        "subprojects" -> conf.projects.groupBy(_.id.project).mapValues(EnsimeModule.fromProjects)//conf.projects.flatMap(proj => EnsimeModule.fromProjects(conf.projects))
-      ))
-      case module: EnsimeModule => sexp(List(
-        "name" -> module.name,
-        "source-roots" -> (module.mainRoots ++ module.testRoots),
-        "targets" -> module.targets,
-        "test-targets" -> module.testTargets,
-        "depends-on-modules" -> module.dependsOnNames,
-        "compile-deps" -> module.compileJars,
-        "runtime-deps" -> module.runtimeJars,
-        "test-deps" -> module.testJars,
-        "doc-jars"-> module.docJars,
-        "reference-source-roots" -> module.sourceJars
-      ))
+  final case class apply(lib: Lib, configFile: File) {
+
+    case class EnsimeConfig(
+      scalaCompilerJars: Seq[File],
+      ensimeServerJars: Seq[File],
+      ensimeServerVersion: String,
+      rootDir: File,
+      cacheDir: File,
+      javaHome: File,
+      name: String,
+      scalaVersion: String,
+      javaSources: Seq[File],
+      javaFlags: Seq[String],
+      projects: Seq[EnsimeProject]
+    ) {
+      def toSexp: String = EnsimeConfig.sexp(this)
+      def apply = lib.writeIfChanged(
+        configFile,
+        toSexp
+      )
+    }
+    object EnsimeConfig {
+      private def sexp(value: Any): String = value match {
+        case s: String => s""""$s""""
+        case f: File => sexp(f.getAbsolutePath)
+        case (k, v) => s":$k ${sexp(v)}\n"
+        case xss: Traversable[_] if xss.isEmpty => "nil"
+        case xss: Traversable[_] => xss.map(sexp(_)).mkString("(", " ", ")")
+        case EnsimeProjectId(project, config) => sexp(List(
+          "project" -> project,
+          "config" -> config
+        ))
+        case proj: EnsimeProject => sexp(List(
+          "id" -> proj.id,
+          "depends" -> proj.depends,
+          "sources" -> proj.sources,
+          "targets" -> proj.targets,
+          "scalac-options" -> proj.scalacOptions,
+          "javac-options" -> proj.javacOptions,
+          "library-jars" -> proj.libraryJars,
+          "library-sources" -> proj.librarySources,
+          "library-docs" -> proj.libraryDocs
+        ))
+        case conf: EnsimeConfig => sexp(List(
+          "root-dir" -> conf.rootDir,
+          "cache-dir" -> conf.cacheDir,
+          "scala-compiler-jars" -> conf.scalaCompilerJars,
+          "ensime-server-jars" -> conf.ensimeServerJars,
+          "ensime-server-version" -> conf.ensimeServerVersion,
+          "name" -> conf.name,
+          "scala-version" -> conf.scalaVersion,
+          "java-home" -> conf.javaHome,
+          "java-flags" -> conf.javaFlags,
+          "java-sources" -> conf.javaSources,
+          "projects" -> conf.projects,
+          // subprojects are required for backwards-compatibility with older clients
+          // (ensime-server does not require them)
+          "subprojects" -> conf.projects.groupBy(_.id.project).mapValues(EnsimeModule.fromProjects)//conf.projects.flatMap(proj => EnsimeModule.fromProjects(conf.projects))
+        ))
+        case module: EnsimeModule => sexp(List(
+          "name" -> module.name,
+          "source-roots" -> (module.mainRoots ++ module.testRoots),
+          "targets" -> module.targets,
+          "test-targets" -> module.testTargets,
+          "depends-on-modules" -> module.dependsOnNames,
+          "compile-deps" -> module.compileJars,
+          "runtime-deps" -> module.runtimeJars,
+          "test-deps" -> module.testJars,
+          "doc-jars"-> module.docJars,
+          "reference-source-roots" -> module.sourceJars
+        ))
+      }
     }
   }
 
